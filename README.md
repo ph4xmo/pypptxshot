@@ -31,4 +31,4 @@ python -m pypptxshot
 ```
 
 ## 🔑 License
-PyPPTXShot is released under the MIT License. See LICENSE for more details."# pypptxshot" 
+PyPPTXShot is released under the MIT License. See LICENSE for more details.
