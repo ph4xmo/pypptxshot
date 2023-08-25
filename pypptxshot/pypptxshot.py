@@ -40,6 +40,11 @@ class PyPPTXShot(object):
         self.filepath = os.path.expanduser("~\Desktop")
         self.filename = "pypptxshot_output"
 
+        # Placeholders for python-pptx init.
+        self.prs = None
+        self.blank_slide_layout = None
+        self.slides = []
+
         # Filename.
         self.use_filename = tk.Label(self.root, text="Filename:")
         self.use_filename.grid(row=1, column=0)
@@ -263,10 +268,11 @@ class PyPPTXShot(object):
                 " pleasant."
             )
 
-    def get_final_savepath(self) -> str:
+    def get_final_savepath(self) -> None:
         """Do a file iteration check for no accidental overwriting.
         
-        Return the final savepath."""
+        Return the final savepath.
+        """
 
         counter = 0
         while (
@@ -277,36 +283,46 @@ class PyPPTXShot(object):
         ):
             print(f"File No. #{counter} detected. Changing file enumeration.")
             counter += 1
-        final_savepath = os.path.join(
+        self.final_savepath = os.path.join(
             self.filepath, self.filename + f"-{counter}.pptx"
         )
+    
+    def save_pptx(self) -> None:
+        """Save and print status."""
 
-        return final_savepath
+        self.get_final_savepath()
+        if not self.do_fail_safe:
+            self.prs.save(self.final_savepath)
+            print(
+                f"Screenshotting complete. File is saved in: {self.final_savepath}"
+            )
+        else:
+            self.do_fail_safe = False
+            print("Fail safe detected. Cancelled operation.")
+    
+    def initialize_pptx(self):
+        """Initialize python-pptx for screenshot placement."""
+        self.prs = Presentation()
+        self.blank_slide_layout = self.prs.slide_layouts[6]
+        self.slides = []
 
-    def take_bounded_screenshot(self, x1, y1, x2, y2) -> None:
-        """Takes a screenshot based on the coordinates given.
+    def get_screenshots_per_slide(self):
+        """Update number of screenshots per slide."""
 
-        Main function for placing and saving screenshots to PPTX file."""
-
-        self.get_manual_mouse_coords()
-        self.get_number_of_slides()
-
-        # Initialize.
-        prs = Presentation()
-        blank_slide_layout = prs.slide_layouts[6]
-        slides = []
-
-        # Update.
-        error_message = (
-            f"Not an integer. Defaulting to 4 for screenshots per slide.",
+        ERROR_MESSAGE = (
+            "Not an integer. Defaulting to 4 for screenshots per slide.",
         )
         try:
             self.screenshots_per_slide = int(self.ss_per_slide_entry.get())
         except ValueError:
-            print(error_message)
+            print(ERROR_MESSAGE)
             self.screenshots_per_slide = 4
 
-        # Update columns.
+    def get_columns_and_rows(self) -> None:
+        """Update columns and rows.
+        
+        Update rows if column number is odd increment 1 due to space issue.
+        """
         try:
             self.columns = int(self.column_per_slide_entry.get())
         except ValueError:
@@ -314,26 +330,25 @@ class PyPPTXShot(object):
             self.columns = 2
         print("Current number of columns per slide:", self.columns)
 
-        # Update rows, if column number is odd increment 1 due to space issue.
-        rows = int(self.screenshots_per_slide / self.columns)
+        self.rows = int(self.screenshots_per_slide / self.columns)
         self.is_odd = False
         if self.screenshots_per_slide / self.columns != 1:
             self.is_odd = True
-        if self.screenshots_per_slide % self.columns != 0 or rows < 1:
-            rows += 1
-        print("Current number of rows per slide:", rows)
+        if self.screenshots_per_slide % self.columns != 0 or self.rows < 1:
+            self.rows += 1
+        print("Current number of rows per slide:", self.rows)
 
-        # Width and height is adjusted based on screenshot dimensions.
+    def get_width_and_height(self, x2, y2) -> (int, int, int, int):
+        """Width and height is adjusted based on screenshot dimensions."""
+
         # Inch value taken from:
         # https://www.unitconverters.net/typography/pixel-x-to-inch.htm
         INCH = 0.0104166667
 
-        self.get_scaling_factor()
-
         scale = self.scaling_factor / 100
 
         slide_width = (x2 * INCH) * self.columns
-        slide_height = (y2 * INCH) * rows
+        slide_height = (y2 * INCH) * self.rows
 
         if self.status_slide_scaled.get():
             slide_width = slide_width * scale
@@ -342,23 +357,36 @@ class PyPPTXShot(object):
         screenshot_width = (x2 * INCH) * scale
         screenshot_height = (y2 * INCH) * scale
 
+        return slide_height, slide_width, screenshot_height, screenshot_width
+    
+    def set_pptx_size(self, slide_height, slide_width) -> None:
+        """Finalize PPTX file's size per slide."""
+
         if Inches(slide_width) > self.MAXIMUM_SIZE:
             print(
                 f"Slide width {slide_width} reached beyond maximum of"
                 f" python-pptx. Reverting to {self.MAXIMUM_SIZE}."
             )
-            prs.slide_width = self.MAXIMUM_SIZE
+            self.prs.slide_width = self.MAXIMUM_SIZE
         else:
-            prs.slide_width = Inches(slide_width)
+            self.prs.slide_width = Inches(slide_width)
 
         if Inches(slide_height) > self.MAXIMUM_SIZE:
             print(
                 f"Slide height {slide_height} reached beyond maximum of"
                 f" python-pptx. Reverting to {self.MAXIMUM_SIZE}."
             )
-            prs.slide_height = self.MAXIMUM_SIZE
+            self.prs.slide_height = self.MAXIMUM_SIZE
         else:
-            prs.slide_height = Inches(slide_height)
+            self.prs.slide_height = Inches(slide_height)
+    
+    def print_info_if_verbose(self, 
+                              slide_height, 
+                              slide_width, 
+                              screenshot_height, 
+                              screenshot_width,
+                              x1, y1, x2, y2):
+        """Prints out finalized sizes and cursor information if enabled."""
 
         print(f"Slide size is {slide_width}x{slide_height} inches.")
         print(
@@ -373,28 +401,41 @@ class PyPPTXShot(object):
             self.y_click,
         )
 
-        # Add the base slides.
+    def add_slides_to_pptx(self) -> None:
+        """Add the base slides"""
+
         for _ in range(1, self.num_of_slides + 1, self.screenshots_per_slide):
-            slides.append(prs.slides.add_slide(blank_slide_layout))
+            self.slides.append(self.prs.slides.add_slide(self.blank_slide_layout))
         print(
-            f"{len(slides)} slides are made out of {self.num_of_slides}",
+            f"{len(self.slides)} slides are made out of {self.num_of_slides}",
             f"configured slots via skipping by {self.screenshots_per_slide}.",
         )
 
-        # Begin screenshotting. Save to a PNG (.png) file first so it
-        # be aligned in the PPTX (.pptx) file.
+    def do_screenshot_loop(self, 
+                           slide_height, 
+                           slide_width, 
+                           screenshot_height, 
+                           screenshot_width,
+                           x1,
+                           y1,
+                           x2,
+                           y2):
+        """ Begin screenshotting. Save to a PNG (.png) file first as to
+        be aligned in the PPTX (.pptx) file.
+        """
+
         try:
             # Reverse.
             if self.is_odd:
-                self.columns, rows = rows, self.columns
+                self.columns, self.rows = self.rows, self.columns
 
-            left_inches = slide_width / rows
+            left_inches = slide_width / self.rows
             top_inches = slide_height / self.columns
 
-            for slide_number in range(len(slides)):
+            for slide_number in range(len(self.slides)):
                 current_shot = 1
                 for column in range(self.columns):
-                    for row in range(rows):
+                    for row in range(self.rows):
                         # Retrieve delay time and wait before clicking.
                         if self.status_do_autoclick.get() == 1:
                             time.sleep(float(self.click_delay_entry.get()))
@@ -416,7 +457,7 @@ class PyPPTXShot(object):
                             left_final = left_inches * row
                             print("TOP, LEFT:", (top_final, left_final))
 
-                            slides[slide_number].shapes.add_picture(
+                            self.slides[slide_number].shapes.add_picture(
                                 img_path,
                                 top=Inches(top_final),
                                 left=Inches(left_final),
@@ -426,23 +467,39 @@ class PyPPTXShot(object):
 
                             # Remove cache.
                             os.remove(img_path)
-
                             current_shot += 1
 
         except pyautogui.FailSafeException:
             self.do_fail_safe = True
 
-        final_savepath = self.get_final_savepath()
+    def take_bounded_screenshot(self, x1, y1, x2, y2) -> None:
+        """Takes a screenshot based on the coordinates given.
 
-        # Save and log.
-        if not self.do_fail_safe:
-            prs.save(final_savepath)
-            print(
-                f"Screenshotting complete. File is saved in: {final_savepath}"
-            )
-        else:
-            self.do_fail_safe = False
-            print("Fail safe detected. Cancelled operation.")
+        Main function for placing and saving screenshots to PPTX file."""
+
+        self.get_manual_mouse_coords()
+        self.get_number_of_slides()
+        self.initialize_pptx()
+        self.get_screenshots_per_slide()
+        self.get_columns_and_rows()
+        self.get_scaling_factor()
+        slide_height, slide_width, \
+        screenshot_height, screenshot_width = self.get_width_and_height(x2, y2)
+        self.set_pptx_size(slide_height, slide_width)
+        self.print_info_if_verbose(slide_height, 
+                                   slide_width, 
+                                   screenshot_height, 
+                                   screenshot_width,
+                                   x1, y1, x2, y2
+                                   )
+        self.add_slides_to_pptx()
+        self.do_screenshot_loop(slide_height, 
+                                slide_width, 
+                                screenshot_height, 
+                                screenshot_width,
+                                x1, y1, x2, y2
+                                )
+        self.save_pptx()
 
     def create_screen_canvas(self) -> None:
         """
