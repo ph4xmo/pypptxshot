@@ -214,12 +214,9 @@ class PyPPTXShot(object):
         )
         self.root.after(100, self.get_mouse_pos)
 
-    def take_bounded_screenshot(self, x1, y1, x2, y2) -> None:
-        """Takes a screenshot based on the coordinates given.
+    def get_manual_mouse_coords(self) -> None:
+        """Get and update mouse coords."""
 
-        Main function for placing and saving screenshots to PPTX file."""
-
-        # Get mouse coords.
         manual_coords = self.manual_xy_entry.get()
         default_coords = (
             float(self.start_x + self.current_x) / 2,
@@ -236,12 +233,63 @@ class PyPPTXShot(object):
         else:
             self.change_coords(instant=True)
 
+    def get_number_of_slides(self) -> None:
+        """Get and update number of slides then multiply."""
+
         # Get number of slides.
         if self.num_screenshots_entry.get() != "":
             self.num_of_slides = int(self.num_screenshots_entry.get())
 
         # Multiply slides.
         self.num_of_slides *= int(self.multiply_screenshots_entry.get())
+
+    def get_scaling_factor(self):
+        """Get the scaling of screenshot based from user input.
+
+        Print out a warning message if beyond 100% and error message if not
+        a correct scale.
+        """
+
+        try:
+            self.scaling_factor = float(self.scaling_entry.get())
+        except ValueError:
+            print("Error in scaling factor. Did you input a valid number?")
+            print("Screenshot scaling is defaulting to 100%.")
+            self.scaling_factor = 100
+
+        if self.scaling_factor > 100:
+            print(
+                "Warning. Scaling is greater than 100%. Results may not be"
+                " pleasant."
+            )
+
+    def get_final_savepath(self) -> str:
+        """Do a file iteration check for no accidental overwriting.
+        
+        Return the final savepath."""
+
+        counter = 0
+        while (
+            os.path.exists(
+                os.path.join(self.filepath, self.filename + f"-{counter}.pptx")
+            )
+            and not self.do_fail_safe
+        ):
+            print(f"File No. #{counter} detected. Changing file enumeration.")
+            counter += 1
+        final_savepath = os.path.join(
+            self.filepath, self.filename + f"-{counter}.pptx"
+        )
+
+        return final_savepath
+
+    def take_bounded_screenshot(self, x1, y1, x2, y2) -> None:
+        """Takes a screenshot based on the coordinates given.
+
+        Main function for placing and saving screenshots to PPTX file."""
+
+        self.get_manual_mouse_coords()
+        self.get_number_of_slides()
 
         # Initialize.
         prs = Presentation()
@@ -280,18 +328,7 @@ class PyPPTXShot(object):
         # https://www.unitconverters.net/typography/pixel-x-to-inch.htm
         INCH = 0.0104166667
 
-        try:
-            self.scaling_factor = float(self.scaling_entry.get())
-        except ValueError:
-            print("Error in scaling factor. Did you input a valid number?")
-            print("Defaulting to 100%.")
-            self.scaling_factor = 100
-
-        if self.scaling_factor > 100:
-            print(
-                "Warning. Scaling is greater than 100%. Results may not be"
-                " pleasant."
-            )
+        self.get_scaling_factor()
 
         scale = self.scaling_factor / 100
 
@@ -395,19 +432,7 @@ class PyPPTXShot(object):
         except pyautogui.FailSafeException:
             self.do_fail_safe = True
 
-        # Do a file iteration check for no accidental overwriting.
-        counter = 0
-        while (
-            os.path.exists(
-                os.path.join(self.filepath, self.filename + f"-{counter}.pptx")
-            )
-            and not self.do_fail_safe
-        ):
-            print(f"File No. #{counter} detected. Changing file enumeration.")
-            counter += 1
-        final_savepath = os.path.join(
-            self.filepath, self.filename + f"-{counter}.pptx"
-        )
+        final_savepath = self.get_final_savepath()
 
         # Save and log.
         if not self.do_fail_safe:
